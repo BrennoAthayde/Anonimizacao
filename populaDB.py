@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 fake = Faker('pt_BR')
 
+#Teste
 # CONEXÃO MYSQL
 conn = mysql.connector.connect(
     host="localhost",
