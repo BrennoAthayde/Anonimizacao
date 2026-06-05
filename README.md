@@ -52,10 +52,8 @@ Realiza a troca de valores entre registros mantendo a consistência estrutural d
 .
 ├── populaDB.py
 ├── anonimizaDB.py
-├── anonimizaDB2.py
-├── anonimizaDB3.py
 ├── README.md
-└── dumps/
+
 ```
 
 ## Ambiente de Testes
@@ -95,12 +93,11 @@ python3 anonimizaDB.py
 
 * Redução da exposição de dados pessoais e sensíveis;
 * Preservação da utilidade dos dados para testes e desenvolvimento;
-* Avaliação comparativa entre diferentes técnicas de anonimização;
 * Apoio à conformidade com a LGPD.
 
 ## Autor
 
-Brenno Rodrigues
+Brenno da Silva Athaide Rodrigues
 
 ## Licença
 
