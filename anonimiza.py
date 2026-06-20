@@ -142,18 +142,61 @@ def aplicar_mascaramento(cursor, database, tabela, coluna, classificacao):
 
     remover_unique_se_existir(cursor, database, tabela, coluna)
 
-    sql_type = tipo_coluna(cursor, database, tabela, coluna)
-    valor = valor_mascarado(classificacao, sql_type)
+    # Mascarar apenas CPF, RG, telefone, CNPJ, cartão e CPF/CNPJ fiscal.
+    # Nome, e-mail, endereço, salário, renda e datas serão ignorados no mascaramento.
 
-    sql = f"""
-        UPDATE `{tabela}`
-        SET `{coluna}` = %s
-        WHERE `{coluna}` IS NOT NULL
-    """
+    if coluna in ["cpf", "cpf_na_nota", "cpf_recebedor"]:
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = CONCAT('***.', SUBSTRING(`{coluna}`, 5, 3), '.', SUBSTRING(`{coluna}`, 9, 3), '-', RIGHT(`{coluna}`, 2))
+            WHERE `{coluna}` IS NOT NULL
+        """
 
-    cursor.execute(sql, (valor,))
+    elif coluna == "cpf_cnpj_destinatario":
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = 
+                CASE
+                    WHEN LENGTH(`{coluna}`) <= 14 THEN CONCAT('***.', SUBSTRING(`{coluna}`, 5, 3), '.', SUBSTRING(`{coluna}`, 9, 3), '-', RIGHT(`{coluna}`, 2))
+                    ELSE CONCAT('**.', SUBSTRING(`{coluna}`, 4, 3), '.', SUBSTRING(`{coluna}`, 8, 3), '/****-', RIGHT(`{coluna}`, 2))
+                END
+            WHERE `{coluna}` IS NOT NULL
+        """
+
+    elif coluna == "rg":
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = CONCAT('**.***.', RIGHT(`{coluna}`, 3))
+            WHERE `{coluna}` IS NOT NULL
+        """
+
+    elif coluna in ["telefone", "telefone_recebedor"]:
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = CONCAT('(**) *****-', RIGHT(`{coluna}`, 4))
+            WHERE `{coluna}` IS NOT NULL
+        """
+
+    elif coluna == "cnpj":
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = CONCAT('**.', SUBSTRING(`{coluna}`, 4, 3), '.', SUBSTRING(`{coluna}`, 8, 3), '/****-', RIGHT(`{coluna}`, 2))
+            WHERE `{coluna}` IS NOT NULL
+        """
+
+    elif coluna == "ultimos_digitos_cartao":
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = '****'
+            WHERE `{coluna}` IS NOT NULL
+        """
+
+    else:
+        print(f"   > Ignorado: mascaramento não aplicado em {tabela}.{coluna}")
+        return 0
+
+    cursor.execute(sql)
     return cursor.rowcount
-
 
 def aplicar_supressao(cursor, database, tabela, coluna, classificacao):
     if not coluna_existe(cursor, database, tabela, coluna):
@@ -178,29 +221,71 @@ def aplicar_generalizacao(cursor, database, tabela, coluna, classificacao):
         return 0
 
     if classificacao == "quase_identificador_data":
+
         sql = f"""
             UPDATE `{tabela}`
-            SET `{coluna}` = STR_TO_DATE(CONCAT(YEAR(`{coluna}`), '-01-01'), '%Y-%m-%d')
+            SET `{coluna}` = STR_TO_DATE(
+                CONCAT(YEAR(`{coluna}`), '-01-01'),
+                '%Y-%m-%d'
+            )
             WHERE `{coluna}` IS NOT NULL
         """
+
     elif classificacao == "quase_identificador_cep":
+
         sql = f"""
             UPDATE `{tabela}`
-            SET `{coluna}` = CONCAT(LEFT(`{coluna}`, 5), '-***')
+            SET `{coluna}` = CONCAT(
+                LEFT(`{coluna}`, 5),
+                '-***'
+            )
             WHERE `{coluna}` IS NOT NULL
         """
+
     elif classificacao == "endereco":
+
         sql = f"""
             UPDATE `{tabela}`
-            SET `{coluna}` = 'ENDERECO_GENERALIZADO'
+            SET `{coluna}` =
+                TRIM(
+                    SUBSTRING_INDEX(`{coluna}`, ',', 1)
+                )
             WHERE `{coluna}` IS NOT NULL
         """
+
     elif classificacao == "numerico_sensivel":
+
+        try:
+            cursor.execute(f"""
+                ALTER TABLE `{tabela}`
+                MODIFY `{coluna}` VARCHAR(30)
+            """)
+        except:
+            pass
+
         sql = f"""
             UPDATE `{tabela}`
-            SET `{coluna}` = ROUND(`{coluna}`, -3)
+            SET `{coluna}` =
+                CASE
+
+                    WHEN CAST(`{coluna}` AS DECIMAL(15,2)) < 2000
+                        THEN '0-2000'
+
+                    WHEN CAST(`{coluna}` AS DECIMAL(15,2)) < 5000
+                        THEN '2000-5000'
+
+                    WHEN CAST(`{coluna}` AS DECIMAL(15,2)) < 10000
+                        THEN '5000-10000'
+
+                    WHEN CAST(`{coluna}` AS DECIMAL(15,2)) < 20000
+                        THEN '10000-20000'
+
+                    ELSE '20000+'
+
+                END
             WHERE `{coluna}` IS NOT NULL
         """
+
     else:
         print(f"   > Ignorado: generalização não recomendada para {classificacao}")
         return 0
@@ -218,65 +303,119 @@ def aplicar_ruido(cursor, database, tabela, coluna, classificacao):
         print("   > Ignorado: ruído só será aplicado em campos numéricos sensíveis")
         return 0
 
-    sql = f"""
-        UPDATE `{tabela}`
-        SET `{coluna}` = `{coluna}` + FLOOR(RAND() * 201) - 100
-        WHERE `{coluna}` IS NOT NULL
-    """
+    sql_type = tipo_coluna(cursor, database, tabela, coluna)
+
+    if sql_type not in ["int", "decimal", "float", "double"]:
+        print(f"   > Ignorado: {tabela}.{coluna} não é campo numérico")
+        return 0
+
+    if coluna == "score_credito":
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = GREATEST(
+                0,
+                LEAST(
+                    1000,
+                    `{coluna}` + FLOOR(RAND() * 101) - 50
+                )
+            )
+            WHERE `{coluna}` IS NOT NULL
+        """
+    else:
+        sql = f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = ROUND(
+                `{coluna}` * (1 + ((RAND() * 0.20) - 0.10)),
+                2
+            )
+            WHERE `{coluna}` IS NOT NULL
+        """
 
     cursor.execute(sql)
     return cursor.rowcount
 
 
 def aplicar_permutacao(cursor, database, tabela, coluna, classificacao):
+    import random
+
+    colunas_permutaveis = [
+        "cpf",
+        "rg",
+        "cpf_na_nota",
+        "cpf_recebedor",
+        "cpf_cnpj_destinatario",
+        "renda_mensal",
+        "salario",
+        "renda_informada",
+        "score_credito"
+    ]
+
+    if coluna not in colunas_permutaveis:
+        print(f"   > Ignorado: {tabela}.{coluna} não é adequado para permutação")
+        return 0
+
     if not coluna_existe(cursor, database, tabela, coluna):
         print("   > Ignorado: coluna não existe")
         return 0
 
-    if classificacao != "numerico_sensivel":
-        print("   > Ignorado: permutação aplicada apenas em campos numéricos sensíveis")
-        return 0
+    remover_unique_se_existir(cursor, database, tabela, coluna)
 
-    sql = f"""
-        UPDATE `{tabela}` t
-        JOIN (
-            SELECT 
-                id_temp,
-                valor_embaralhado
-            FROM (
-                SELECT 
-                    ROW_NUMBER() OVER () AS id_temp,
-                    `{coluna}`
-                FROM `{tabela}`
-                WHERE `{coluna}` IS NOT NULL
-            ) a
-            JOIN (
-                SELECT 
-                    ROW_NUMBER() OVER () AS id_temp,
-                    `{coluna}` AS valor_embaralhado
-                FROM (
-                    SELECT `{coluna}`
-                    FROM `{tabela}`
-                    WHERE `{coluna}` IS NOT NULL
-                    ORDER BY RAND()
-                ) b1
-            ) b ON a.id_temp = b.id_temp
-        ) temp ON temp.id_temp = (
-            SELECT COUNT(*)
-            FROM `{tabela}` t2
-            WHERE t2.`{coluna}` IS NOT NULL
-              AND t2.`{coluna}` <= t.`{coluna}`
-        )
-        SET t.`{coluna}` = temp.valor_embaralhado
-        WHERE t.`{coluna}` IS NOT NULL
+
+    sql_pk = """
+        SELECT COLUMN_NAME
+        FROM information_schema.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = %s
+        AND TABLE_NAME = %s
+        AND CONSTRAINT_NAME = 'PRIMARY'
+        LIMIT 1
     """
 
-    try:
-        cursor.execute(sql)
-        return cursor.rowcount
-    except Exception as erro:
-        print(f"   > Permutação ignorada em {tabela}.{coluna}: {erro}")
+    cursor.execute(sql_pk, (database, tabela))
+    resultado = cursor.fetchone()
+
+    if not resultado:
+        print("   > Ignorado: tabela sem chave primária")
         return 0
+
+    chave_primaria = resultado[0]
+
+    cursor.execute(f"""
+        SELECT `{chave_primaria}`, `{coluna}`
+        FROM `{tabela}`
+        WHERE `{coluna}` IS NOT NULL
+    """)
+
+    registros = cursor.fetchall()
+
+    if len(registros) < 2:
+        print("   > Poucos registros para permutação")
+        return 0
+
+    ids = [r[0] for r in registros]
+    valores = [r[1] for r in registros]
+
+    valores_embaralhados = valores.copy()
+
+    tentativas = 0
+    while valores_embaralhados == valores and tentativas < 10:
+        random.shuffle(valores_embaralhados)
+        tentativas += 1
+
+    afetados = 0
+
+    for id_registro, novo_valor in zip(ids, valores_embaralhados):
+        cursor.execute(
+            f"""
+            UPDATE `{tabela}`
+            SET `{coluna}` = %s
+            WHERE `{chave_primaria}` = %s
+            """,
+            (novo_valor, id_registro)
+        )
+
+        afetados += cursor.rowcount
+
+    return afetados
 
 
 def aplicar_tecnica(database, tecnica, tabelas_escolhidas):
