@@ -86,7 +86,7 @@ python3 populaDB.py
 ### Executar a Anonimização
 
 ```bash
-python3 anonimizaDB.py
+python3 anonimiza.py
 ```
 
 ## Resultados Esperados
