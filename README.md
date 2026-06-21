@@ -51,7 +51,7 @@ Realiza a troca de valores entre registros mantendo a consistência estrutural d
 ```text
 .
 ├── populaDB.py
-├── anonimizaDB.py
+├── anonimiza.py
 ├── README.md
 
 ```
